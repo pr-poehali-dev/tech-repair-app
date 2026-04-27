@@ -1,0 +1,1 @@
+UPDATE t_p18818533_tech_repair_app.users SET email='samstepa@mail.ru', password_hash='1a5e39c03bbb20dcc9e5ca35c23a0e76' WHERE id=1
