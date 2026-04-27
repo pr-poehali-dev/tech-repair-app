@@ -1,7 +1,30 @@
 import { useState, useEffect } from 'react';
-import { User, apiGetUsers, apiUpdateUser, apiCreateUser, apiUpdateProfile } from '@/lib/api';
+import { User, apiGetUsers, apiUpdateUser, apiCreateUser, apiUpdateProfile, apiResetOrders, apiDeactivateMaster } from '@/lib/api';
 import { useAuth } from '@/lib/AuthContext';
 import Icon from '@/components/ui/icon';
+
+// Диалог подтверждения опасного действия
+function ConfirmDialog({ title, desc, confirmLabel, confirmClass, onConfirm, onCancel, loading }: {
+  title: string; desc: string; confirmLabel: string; confirmClass?: string;
+  onConfirm: () => void; onCancel: () => void; loading?: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end bg-black/70 animate-fade-in" onClick={onCancel}>
+      <div className="w-full max-w-lg mx-auto bg-card border-t border-border rounded-t-2xl p-6 space-y-4 animate-slide-up" onClick={(e) => e.stopPropagation()}>
+        <p className="font-bold text-foreground text-lg text-center">{title}</p>
+        <p className="text-sm text-muted-foreground text-center leading-relaxed">{desc}</p>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-secondary text-foreground font-medium tap-highlight">Отмена</button>
+          <button onClick={onConfirm} disabled={loading}
+            className={`flex-1 py-3 rounded-xl font-medium flex items-center justify-center gap-2 tap-highlight disabled:opacity-60 ${confirmClass ?? 'bg-destructive text-destructive-foreground'}`}>
+            {loading ? <Icon name="Loader2" size={16} className="animate-spin" /> : null}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ProfilePage() {
   const { user, logout, refreshUser } = useAuth();
@@ -15,6 +38,10 @@ export default function ProfilePage() {
   const [masterForm, setMasterForm] = useState({ name: '', email: '', phone: '', speciality: '', role: 'master', password: '', is_active: true });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  // Confirm dialogs
+  const [confirmDelete, setConfirmDelete] = useState<User | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     if (user?.role === 'admin') {
@@ -46,22 +73,16 @@ export default function ProfilePage() {
     try {
       if (editMaster) {
         const updated = await apiUpdateUser(editMaster.id, {
-          name: masterForm.name,
-          email: masterForm.email,
-          phone: masterForm.phone,
-          speciality: masterForm.speciality,
-          role: masterForm.role as 'admin' | 'master',
+          name: masterForm.name, email: masterForm.email, phone: masterForm.phone,
+          speciality: masterForm.speciality, role: masterForm.role as 'admin' | 'master',
           is_active: masterForm.is_active,
           ...(masterForm.password ? { password: masterForm.password } : {}),
         });
         setMasters((prev) => prev.map((m) => m.id === updated.id ? updated : m));
       } else {
         const created = await apiCreateUser({
-          name: masterForm.name,
-          email: masterForm.email,
-          phone: masterForm.phone,
-          speciality: masterForm.speciality,
-          role: masterForm.role as 'admin' | 'master',
+          name: masterForm.name, email: masterForm.email, phone: masterForm.phone,
+          speciality: masterForm.speciality, role: masterForm.role as 'admin' | 'master',
           password: masterForm.password || 'master123',
         });
         setMasters((prev) => [...prev, created]);
@@ -74,6 +95,37 @@ export default function ProfilePage() {
       setMsg(e instanceof Error ? e.message : 'Ошибка');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Быстрое удаление мастера — деактивация + убийство сессий
+  const handleDeleteMaster = async (m: User) => {
+    setActionLoading(true);
+    try {
+      await apiDeactivateMaster(m.id);
+      setMasters((prev) => prev.map((u) => u.id === m.id ? { ...u, is_active: false } : u));
+      setConfirmDelete(null);
+      setMsg(`Мастер ${m.name.split(' ')[0]} деактивирован`);
+      setTimeout(() => setMsg(''), 3000);
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : 'Ошибка');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Сброс всех заявок
+  const handleResetOrders = async () => {
+    setActionLoading(true);
+    try {
+      await apiResetOrders();
+      setConfirmReset(false);
+      setMsg('Все заявки удалены');
+      setTimeout(() => setMsg(''), 4000);
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : 'Ошибка');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -101,7 +153,6 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-bold text-foreground">Профиль</h1>
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-none px-4 pb-4 space-y-4">
-          {/* Profile card */}
           <div className="card-surface p-4">
             <div className="flex items-center gap-4 mb-4">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center">
@@ -116,7 +167,6 @@ export default function ProfilePage() {
                 </div>
               </div>
             </div>
-
             {!editProfile ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm">
@@ -140,22 +190,15 @@ export default function ProfilePage() {
                 <div className="flex gap-2">
                   <button onClick={() => setEditProfile(false)} className="flex-1 py-2.5 rounded-xl bg-secondary text-sm text-foreground">Отмена</button>
                   <button onClick={handleSaveProfile} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-60">
-                    {saving ? <Icon name="Loader2" size={13} className="animate-spin" /> : null}
-                    Сохранить
+                    {saving ? <Icon name="Loader2" size={13} className="animate-spin" /> : null} Сохранить
                   </button>
                 </div>
               </div>
             )}
           </div>
-
           {msg && <p className="text-center text-sm text-[hsl(var(--status-done))]">{msg}</p>}
-
-          <button
-            onClick={logout}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl border border-destructive/40 text-destructive text-sm font-medium tap-highlight"
-          >
-            <Icon name="LogOut" size={16} />
-            Выйти из аккаунта
+          <button onClick={logout} className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl border border-destructive/40 text-destructive text-sm font-medium tap-highlight">
+            <Icon name="LogOut" size={16} /> Выйти из аккаунта
           </button>
         </div>
       </div>
@@ -165,6 +208,30 @@ export default function ProfilePage() {
   // ADMIN VIEW
   return (
     <div className="flex flex-col h-full">
+      {/* Confirm: delete master */}
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Удалить мастера?"
+          desc={`${confirmDelete.name} будет деактивирован и немедленно потеряет доступ к приложению`}
+          confirmLabel="Удалить доступ"
+          onConfirm={() => handleDeleteMaster(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
+          loading={actionLoading}
+        />
+      )}
+
+      {/* Confirm: reset orders */}
+      {confirmReset && (
+        <ConfirmDialog
+          title="Сбросить все заявки?"
+          desc="Все заявки, история и статистика будут удалены безвозвратно. Мастера и настройки останутся."
+          confirmLabel="Сбросить всё"
+          onConfirm={handleResetOrders}
+          onCancel={() => setConfirmReset(false)}
+          loading={actionLoading}
+        />
+      )}
+
       <div className="px-4 pt-4 pb-3">
         <p className="text-xs text-muted-foreground font-medium tracking-wide uppercase">Кабинет</p>
         <h1 className="text-2xl font-bold text-foreground">Профиль</h1>
@@ -186,7 +253,6 @@ export default function ProfilePage() {
               <Icon name="Edit2" size={15} />
             </button>
           </div>
-
           {editProfile && (
             <div className="mt-4 space-y-2 border-t border-border pt-4">
               <input value={profileForm.name} onChange={(e) => setProfileForm((f) => ({ ...f, name: e.target.value }))} placeholder="Имя"
@@ -196,22 +262,21 @@ export default function ProfilePage() {
               <div className="flex gap-2">
                 <button onClick={() => setEditProfile(false)} className="flex-1 py-2.5 rounded-xl bg-secondary text-sm text-foreground">Отмена</button>
                 <button onClick={handleSaveProfile} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-60">
-                  {saving ? <Icon name="Loader2" size={13} className="animate-spin" /> : null}
-                  Сохранить
+                  {saving ? <Icon name="Loader2" size={13} className="animate-spin" /> : null} Сохранить
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {msg && <p className="mx-4 mb-2 text-center text-sm text-[hsl(var(--status-done))]">{msg}</p>}
+        {msg && <p className="mx-4 mb-3 text-center text-sm text-[hsl(var(--status-done))]">{msg}</p>}
 
         {/* Stats */}
         <div className="mx-4 mb-4 grid grid-cols-3 gap-2">
           {[
-            { label: 'Мастеров', value: masters.filter((m) => m.role === 'master').length, icon: 'Users' },
+            { label: 'Мастеров', value: masters.filter((m) => m.role === 'master' && m.is_active !== false).length, icon: 'Users' },
             { label: 'Активных', value: masters.filter((m) => m.role === 'master' && m.is_active !== false).length, icon: 'UserCheck' },
-            { label: 'Сотрудников', value: masters.length, icon: 'Briefcase' },
+            { label: 'Сотрудников', value: masters.filter((m) => m.is_active !== false).length, icon: 'Briefcase' },
           ].map((s) => (
             <div key={s.label} className="card-surface p-3 text-center">
               <Icon name={s.icon} size={16} className="text-primary mx-auto mb-1" />
@@ -222,12 +287,10 @@ export default function ProfilePage() {
         </div>
 
         {/* Menu */}
-        <div className="mx-4 card-surface overflow-hidden">
+        <div className="mx-4 card-surface overflow-hidden mb-4">
           {/* Masters management */}
-          <button
-            onClick={() => setShowMasters(!showMasters)}
-            className="w-full flex items-center gap-3 px-4 py-3.5 tap-highlight text-left border-b border-border"
-          >
+          <button onClick={() => setShowMasters(!showMasters)}
+            className="w-full flex items-center gap-3 px-4 py-3.5 tap-highlight text-left border-b border-border">
             <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center">
               <Icon name="Users" size={15} />
             </div>
@@ -241,24 +304,29 @@ export default function ProfilePage() {
           {showMasters && (
             <div className="border-b border-border bg-secondary/30">
               <div className="px-4 py-3 space-y-2">
-                {masters.map((m) => (
-                  <div key={m.id} className="flex items-center gap-3 py-2">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${m.is_active !== false ? 'bg-primary/20' : 'bg-muted'}`}>
+                {masters.filter((m) => m.is_active !== false).map((m) => (
+                  <div key={m.id} className="flex items-center gap-3 py-1.5">
+                    <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center">
                       <span className="text-sm font-bold text-primary">{m.name[0]}</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{m.name}</p>
                       <p className="text-xs text-muted-foreground">{m.role === 'admin' ? 'Администратор' : m.speciality || 'Мастер'}</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {m.is_active === false && <span className="text-[10px] text-destructive">Откл.</span>}
-                      <button onClick={() => openEditMaster(m)} className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center">
-                        <Icon name="Edit2" size={12} className="text-foreground" />
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => openEditMaster(m)} className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center tap-highlight">
+                        <Icon name="Edit2" size={13} className="text-foreground" />
                       </button>
+                      {m.role === 'master' && (
+                        <button onClick={() => setConfirmDelete(m)} className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center tap-highlight">
+                          <Icon name="UserX" size={13} className="text-destructive" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
-                <button onClick={openAddMaster} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-border text-sm text-muted-foreground mt-1">
+                <button onClick={openAddMaster}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-border text-sm text-muted-foreground mt-1 tap-highlight">
                   <Icon name="UserPlus" size={14} className="text-primary" /> Добавить сотрудника
                 </button>
               </div>
@@ -266,10 +334,8 @@ export default function ProfilePage() {
           )}
 
           {/* Notifications toggle */}
-          <button
-            onClick={() => setNotifications(!notifications)}
-            className="w-full flex items-center gap-3 px-4 py-3.5 tap-highlight text-left border-b border-border"
-          >
+          <button onClick={() => setNotifications(!notifications)}
+            className="w-full flex items-center gap-3 px-4 py-3.5 tap-highlight text-left border-b border-border">
             <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center">
               <Icon name="Bell" size={15} />
             </div>
@@ -295,14 +361,31 @@ export default function ProfilePage() {
           </button>
 
           {/* Logout */}
-          <button
-            onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-3.5 tap-highlight text-left"
-          >
+          <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-3.5 tap-highlight text-left">
             <div className="w-8 h-8 rounded-xl bg-destructive/10 flex items-center justify-center">
               <Icon name="LogOut" size={15} className="text-destructive" />
             </div>
             <p className="text-sm font-medium text-destructive">Выйти</p>
+          </button>
+        </div>
+
+        {/* Danger zone */}
+        <div className="mx-4 rounded-2xl border border-destructive/30 overflow-hidden">
+          <div className="px-4 py-3 bg-destructive/5">
+            <p className="text-xs font-semibold text-destructive uppercase tracking-wide">Опасная зона</p>
+          </div>
+          <button
+            onClick={() => setConfirmReset(true)}
+            className="w-full flex items-center gap-3 px-4 py-4 tap-highlight text-left bg-destructive/5 active:bg-destructive/10 transition-colors"
+          >
+            <div className="w-9 h-9 rounded-xl bg-destructive/15 flex items-center justify-center flex-shrink-0">
+              <Icon name="Trash2" size={16} className="text-destructive" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-destructive">Сбросить все заявки</p>
+              <p className="text-xs text-destructive/70 mt-0.5">Удалить всю историю работ и статистику</p>
+            </div>
+            <Icon name="ChevronRight" size={16} className="text-destructive/50" />
           </button>
         </div>
       </div>
@@ -337,17 +420,6 @@ export default function ProfilePage() {
                 placeholder={editMaster ? 'Новый пароль (оставьте пустым)' : 'Пароль (по умолчанию: master123)'}
                 type="password"
                 className="w-full bg-secondary border border-border rounded-xl px-3 py-3 text-sm text-foreground outline-none focus:border-primary" />
-              {editMaster && (
-                <button
-                  onClick={() => setMasterForm((f) => ({ ...f, is_active: !f.is_active }))}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border ${masterForm.is_active ? 'border-[hsl(var(--status-done)/0.4)] bg-[hsl(var(--status-done)/0.08)]' : 'border-destructive/30 bg-destructive/10'}`}
-                >
-                  <Icon name={masterForm.is_active ? 'UserCheck' : 'UserX'} size={16} className={masterForm.is_active ? 'text-[hsl(var(--status-done))]' : 'text-destructive'} />
-                  <span className={`text-sm font-medium ${masterForm.is_active ? 'text-[hsl(var(--status-done))]' : 'text-destructive'}`}>
-                    {masterForm.is_active ? 'Активен — нажать для деактивации' : 'Деактивирован — нажать для включения'}
-                  </span>
-                </button>
-              )}
               {msg && <p className="text-sm text-[hsl(var(--status-done))] text-center">{msg}</p>}
               <button onClick={handleSaveMaster} disabled={saving || !masterForm.name || !masterForm.email}
                 className="w-full py-4 rounded-xl bg-primary text-primary-foreground font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50 mb-4">

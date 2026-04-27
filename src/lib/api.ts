@@ -132,6 +132,21 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// Reset (admin only)
+export async function apiResetOrders() {
+  const res = await request('reset', { action: 'orders' }, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error);
+  return data;
+}
+
+export async function apiDeactivateMaster(id: number) {
+  const res = await request('reset', { action: 'deactivate_master', id: String(id) }, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error);
+  return data;
+}
+
 // Types
 export interface User {
   id: number;
