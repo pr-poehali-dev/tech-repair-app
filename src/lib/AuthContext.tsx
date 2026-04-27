@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { apiGetMe, apiLogout, User } from './api';
 
+const USER_KEY = 'crm_user';
+const SESSION_KEY = 'session_id';
+
 interface AuthCtx {
   user: User | null;
   loading: boolean;
@@ -17,28 +20,79 @@ const AuthContext = createContext<AuthCtx>({
   refreshUser: async () => {},
 });
 
+function loadCachedUser(): User | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveUser(u: User | null) {
+  if (u) localStorage.setItem(USER_KEY, JSON.stringify(u));
+  else localStorage.removeItem(USER_KEY);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const refreshUser = useCallback(async () => {
-    const u = await apiGetMe();
-    setUser(u);
+  useEffect(() => {
+    const sid = localStorage.getItem(SESSION_KEY);
+    const cached = loadCachedUser();
+
+    // Есть кэш — сразу показываем приложение, обновляем в фоне
+    if (cached) {
+      setUser(cached);
+      setLoading(false);
+    }
+
+    if (!sid) {
+      setLoading(false);
+      return;
+    }
+
+    // Фоновое обновление данных (если есть интернет)
+    apiGetMe()
+      .then((u) => {
+        if (u) {
+          setUser(u);
+          saveUser(u);
+        } else if (!cached) {
+          // Сессия протухла и кэша нет — выходим
+          localStorage.removeItem(SESSION_KEY);
+          setUser(null);
+        }
+      })
+      .catch(() => {
+        // Нет интернета — работаем с кэшем
+        if (!cached) setUser(null);
+      })
+      .finally(() => {
+        if (!cached) setLoading(false);
+      });
   }, []);
 
-  useEffect(() => {
-    const sid = localStorage.getItem('session_id');
-    if (!sid) { setLoading(false); return; }
-    apiGetMe().then((u) => { setUser(u); setLoading(false); });
+  const refreshUser = useCallback(async () => {
+    try {
+      const u = await apiGetMe();
+      if (u) { setUser(u); saveUser(u); }
+    } catch {
+      // offline — используем кэш
+    }
   }, []);
 
   const login = useCallback((sessionId: string, u: User) => {
-    localStorage.setItem('session_id', sessionId);
+    localStorage.setItem(SESSION_KEY, sessionId);
+    saveUser(u);
     setUser(u);
   }, []);
 
   const logout = useCallback(async () => {
-    await apiLogout();
+    try { await apiLogout(); } catch { /* offline */ }
+    localStorage.removeItem(SESSION_KEY);
+    saveUser(null);
     setUser(null);
   }, []);
 

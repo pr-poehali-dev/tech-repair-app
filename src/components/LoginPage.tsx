@@ -5,7 +5,7 @@ import Icon from '@/components/ui/icon';
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => localStorage.getItem('crm_saved_email') || '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,6 +16,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { session_id, user } = await apiLogin(email.trim(), password);
+      localStorage.setItem('crm_saved_email', email.trim());
       login(session_id, user);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Ошибка входа');
