@@ -1,4 +1,4 @@
-"""Управление пользователями: список, добавление, обновление роли/данных (только admin)"""
+"""Управление пользователями: ?id= для конкретного, без id — список"""
 import json
 import os
 import hashlib
@@ -47,9 +47,10 @@ def handler(event: dict, context) -> dict:
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
     method = event.get('httpMethod', 'GET')
-    path = event.get('path', '/')
     headers = event.get('headers') or {}
     session_id = headers.get('x-session-id') or headers.get('X-Session-Id', '')
+    qs = event.get('queryStringParameters') or {}
+    target_id = qs.get('id')
 
     conn = get_conn()
     user = get_user(conn, session_id)
@@ -57,23 +58,16 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Unauthorized'})}
 
-    parts = [p for p in path.split('/') if p]
-    target_id = None
-    if len(parts) >= 1 and parts[-1].isdigit():
-        target_id = int(parts[-1])
-
-    # GET /users — list masters (admin only)
-    if method == 'GET' and target_id is None:
+    # GET — list
+    if method == 'GET' and not target_id:
         cur = conn.cursor()
-        cur.execute(
-            f"SELECT id, name, email, phone, role, speciality, rating, is_active, created_at FROM {SCHEMA}.users ORDER BY role, name"
-        )
+        cur.execute(f"SELECT id, name, email, phone, role, speciality, rating, is_active, created_at FROM {SCHEMA}.users ORDER BY role, name")
         rows = cur.fetchall()
         conn.close()
         return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'users': [row_to_user(r) for r in rows]})}
 
-    # POST /users — create master (admin only)
-    if method == 'POST' and target_id is None:
+    # POST — create (admin only)
+    if method == 'POST':
         if user['role'] != 'admin':
             conn.close()
             return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Forbidden'})}
@@ -89,7 +83,7 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return {'statusCode': 201, 'headers': CORS, 'body': json.dumps({'user': row_to_user(row)})}
 
-    # PUT /users/:id — update user (admin only)
+    # PUT ?id=X — update (admin only)
     if method == 'PUT' and target_id:
         if user['role'] != 'admin':
             conn.close()
@@ -102,13 +96,13 @@ def handler(event: dict, context) -> dict:
             if f in body:
                 fields.append(f"{f}=%s")
                 vals.append(body[f])
-        if 'password' in body:
+        if 'password' in body and body['password']:
             fields.append("password_hash=%s")
             vals.append(md5(body['password']))
         if not fields:
             conn.close()
             return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Nothing to update'})}
-        vals.append(target_id)
+        vals.append(int(target_id))
         cur.execute(f"UPDATE {SCHEMA}.users SET {', '.join(fields)} WHERE id=%s RETURNING id, name, email, phone, role, speciality, rating, is_active, created_at", vals)
         row = cur.fetchone()
         conn.commit()

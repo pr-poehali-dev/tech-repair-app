@@ -1,8 +1,7 @@
-"""Заявки: список, создание, обновление статуса, редактирование финансов"""
+"""Заявки: список, создание, обновление — ?id=, ?action=status"""
 import json
 import os
 import psycopg2
-from datetime import datetime
 
 SCHEMA = 't_p18818533_tech_repair_app'
 
@@ -50,15 +49,19 @@ def row_to_order(row) -> dict:
     }
 
 
+ORDER_SELECT = f"SELECT o.id,o.client_name,o.client_phone,o.address,o.work_type,o.description,o.master_id,u.name,o.status,o.scheduled_at,o.prepaid,o.parts_cost,o.final_amount,o.master_notes,o.created_at,o.updated_at FROM {SCHEMA}.orders o LEFT JOIN {SCHEMA}.users u ON u.id=o.master_id"
+
+
 def handler(event: dict, context) -> dict:
     if event.get('httpMethod') == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
     method = event.get('httpMethod', 'GET')
-    path = event.get('path', '/')
     headers = event.get('headers') or {}
     session_id = headers.get('x-session-id') or headers.get('X-Session-Id', '')
     qs = event.get('queryStringParameters') or {}
+    order_id = qs.get('id')
+    action = qs.get('action')
 
     conn = get_conn()
     user = get_user(conn, session_id)
@@ -66,47 +69,29 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Unauthorized'})}
 
-    # Extract order id from path e.g. /orders/42/status
-    parts = [p for p in path.split('/') if p]
-    order_id = None
-    sub = None
-    if len(parts) >= 2 and parts[-2].isdigit():
-        order_id = int(parts[-2])
-        sub = parts[-1]
-    elif len(parts) >= 1 and parts[-1].isdigit():
-        order_id = int(parts[-1])
-
-    # GET /orders — list
-    if method == 'GET' and order_id is None:
+    # GET list
+    if method == 'GET' and not order_id:
         cur = conn.cursor()
         if user['role'] == 'master':
-            cur.execute(
-                f"SELECT o.id,o.client_name,o.client_phone,o.address,o.work_type,o.description,o.master_id,u.name,o.status,o.scheduled_at,o.prepaid,o.parts_cost,o.final_amount,o.master_notes,o.created_at,o.updated_at FROM {SCHEMA}.orders o LEFT JOIN {SCHEMA}.users u ON u.id=o.master_id WHERE o.master_id=%s ORDER BY o.updated_at DESC",
-                (user['id'],)
-            )
+            cur.execute(ORDER_SELECT + f" WHERE o.master_id=%s ORDER BY o.updated_at DESC", (user['id'],))
         else:
-            cur.execute(
-                f"SELECT o.id,o.client_name,o.client_phone,o.address,o.work_type,o.description,o.master_id,u.name,o.status,o.scheduled_at,o.prepaid,o.parts_cost,o.final_amount,o.master_notes,o.created_at,o.updated_at FROM {SCHEMA}.orders o LEFT JOIN {SCHEMA}.users u ON u.id=o.master_id ORDER BY o.updated_at DESC"
-            )
+            cur.execute(ORDER_SELECT + " ORDER BY o.updated_at DESC")
         rows = cur.fetchall()
         conn.close()
         return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'orders': [row_to_order(r) for r in rows]})}
 
-    # GET /orders/:id
+    # GET single
     if method == 'GET' and order_id:
         cur = conn.cursor()
-        cur.execute(
-            f"SELECT o.id,o.client_name,o.client_phone,o.address,o.work_type,o.description,o.master_id,u.name,o.status,o.scheduled_at,o.prepaid,o.parts_cost,o.final_amount,o.master_notes,o.created_at,o.updated_at FROM {SCHEMA}.orders o LEFT JOIN {SCHEMA}.users u ON u.id=o.master_id WHERE o.id=%s",
-            (order_id,)
-        )
+        cur.execute(ORDER_SELECT + f" WHERE o.id=%s", (int(order_id),))
         row = cur.fetchone()
         conn.close()
         if not row:
             return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Not found'})}
         return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'order': row_to_order(row)})}
 
-    # POST /orders — create (admin only)
-    if method == 'POST' and order_id is None:
+    # POST — create
+    if method == 'POST':
         if user['role'] != 'admin':
             conn.close()
             return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Forbidden'})}
@@ -120,20 +105,17 @@ def handler(event: dict, context) -> dict:
         )
         new_id = cur.fetchone()[0]
         conn.commit()
-        cur.execute(
-            f"SELECT o.id,o.client_name,o.client_phone,o.address,o.work_type,o.description,o.master_id,u.name,o.status,o.scheduled_at,o.prepaid,o.parts_cost,o.final_amount,o.master_notes,o.created_at,o.updated_at FROM {SCHEMA}.orders o LEFT JOIN {SCHEMA}.users u ON u.id=o.master_id WHERE o.id=%s",
-            (new_id,)
-        )
+        cur.execute(ORDER_SELECT + " WHERE o.id=%s", (new_id,))
         row = cur.fetchone()
         conn.close()
         return {'statusCode': 201, 'headers': CORS, 'body': json.dumps({'order': row_to_order(row)})}
 
-    # PUT /orders/:id/status — change status
-    if method == 'PUT' and order_id and sub == 'status':
+    # PUT ?id=X&action=status — change status
+    if method == 'PUT' and order_id and action == 'status':
         body = json.loads(event.get('body') or '{}')
         new_status = body.get('status')
         cur = conn.cursor()
-        cur.execute(f"SELECT status, master_id FROM {SCHEMA}.orders WHERE id=%s", (order_id,))
+        cur.execute(f"SELECT status, master_id FROM {SCHEMA}.orders WHERE id=%s", (int(order_id),))
         row = cur.fetchone()
         if not row:
             conn.close()
@@ -146,26 +128,23 @@ def handler(event: dict, context) -> dict:
         if user['role'] == 'master' and master_id != user['id']:
             conn.close()
             return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Forbidden'})}
-        cur.execute(f"UPDATE {SCHEMA}.orders SET status=%s, updated_at=NOW() WHERE id=%s", (new_status, order_id))
+        cur.execute(f"UPDATE {SCHEMA}.orders SET status=%s, updated_at=NOW() WHERE id=%s", (new_status, int(order_id)))
         conn.commit()
-        cur.execute(
-            f"SELECT o.id,o.client_name,o.client_phone,o.address,o.work_type,o.description,o.master_id,u.name,o.status,o.scheduled_at,o.prepaid,o.parts_cost,o.final_amount,o.master_notes,o.created_at,o.updated_at FROM {SCHEMA}.orders o LEFT JOIN {SCHEMA}.users u ON u.id=o.master_id WHERE o.id=%s",
-            (order_id,)
-        )
+        cur.execute(ORDER_SELECT + " WHERE o.id=%s", (int(order_id),))
         updated = cur.fetchone()
         conn.close()
         return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'order': row_to_order(updated)})}
 
-    # PUT /orders/:id — update finances/notes (admin edits all, master edits own in_progress/done)
-    if method == 'PUT' and order_id and sub is None:
+    # PUT ?id=X — update fields
+    if method == 'PUT' and order_id:
         body = json.loads(event.get('body') or '{}')
         cur = conn.cursor()
-        cur.execute(f"SELECT master_id, status FROM {SCHEMA}.orders WHERE id=%s", (order_id,))
+        cur.execute(f"SELECT master_id FROM {SCHEMA}.orders WHERE id=%s", (int(order_id),))
         row = cur.fetchone()
         if not row:
             conn.close()
             return {'statusCode': 404, 'headers': CORS, 'body': json.dumps({'error': 'Not found'})}
-        master_id, status = row
+        master_id = row[0]
         if user['role'] == 'master' and master_id != user['id']:
             conn.close()
             return {'statusCode': 403, 'headers': CORS, 'body': json.dumps({'error': 'Forbidden'})}
@@ -179,13 +158,10 @@ def handler(event: dict, context) -> dict:
             conn.close()
             return {'statusCode': 400, 'headers': CORS, 'body': json.dumps({'error': 'Nothing to update'})}
         fields.append("updated_at=NOW()")
-        vals.append(order_id)
+        vals.append(int(order_id))
         cur.execute(f"UPDATE {SCHEMA}.orders SET {', '.join(fields)} WHERE id=%s", vals)
         conn.commit()
-        cur.execute(
-            f"SELECT o.id,o.client_name,o.client_phone,o.address,o.work_type,o.description,o.master_id,u.name,o.status,o.scheduled_at,o.prepaid,o.parts_cost,o.final_amount,o.master_notes,o.created_at,o.updated_at FROM {SCHEMA}.orders o LEFT JOIN {SCHEMA}.users u ON u.id=o.master_id WHERE o.id=%s",
-            (order_id,)
-        )
+        cur.execute(ORDER_SELECT + " WHERE o.id=%s", (int(order_id),))
         updated = cur.fetchone()
         conn.close()
         return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'order': row_to_order(updated)})}

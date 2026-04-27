@@ -1,4 +1,4 @@
-"""Загрузка и получение файлов заявки (чеки, документы)"""
+"""Файлы заявки: GET ?order_id=X, POST загрузка"""
 import json
 import os
 import base64
@@ -45,7 +45,6 @@ def handler(event: dict, context) -> dict:
         return {'statusCode': 200, 'headers': CORS, 'body': ''}
 
     method = event.get('httpMethod', 'GET')
-    path = event.get('path', '/')
     headers = event.get('headers') or {}
     session_id = headers.get('x-session-id') or headers.get('X-Session-Id', '')
     qs = event.get('queryStringParameters') or {}
@@ -56,7 +55,7 @@ def handler(event: dict, context) -> dict:
         conn.close()
         return {'statusCode': 401, 'headers': CORS, 'body': json.dumps({'error': 'Unauthorized'})}
 
-    # GET /files?order_id=X
+    # GET ?order_id=X
     if method == 'GET':
         order_id = qs.get('order_id')
         if not order_id:
@@ -72,7 +71,7 @@ def handler(event: dict, context) -> dict:
         files = [{'id': r[0], 'filename': r[1], 's3_key': r[2], 'file_url': r[3], 'file_type': r[4], 'uploaded_by': r[5], 'created_at': r[6].isoformat()} for r in rows]
         return {'statusCode': 200, 'headers': CORS, 'body': json.dumps({'files': files})}
 
-    # POST /files — upload file
+    # POST — upload
     if method == 'POST':
         body = json.loads(event.get('body') or '{}')
         order_id = body.get('order_id')

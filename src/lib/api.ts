@@ -6,8 +6,9 @@ function getSessionId(): string {
   return localStorage.getItem('session_id') || '';
 }
 
-async function request(fn: string, path: string, options: RequestInit = {}): Promise<Response> {
-  const url = `${URLS[fn]}${path}`;
+async function request(fn: string, params: Record<string, string>, options: RequestInit = {}): Promise<Response> {
+  const qs = new URLSearchParams(params).toString();
+  const url = `${URLS[fn]}${qs ? '?' + qs : ''}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
@@ -20,26 +21,26 @@ async function request(fn: string, path: string, options: RequestInit = {}): Pro
 
 // Auth
 export async function apiLogin(email: string, password: string) {
-  const res = await request('auth', '/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+  const res = await request('auth', { action: 'login' }, { method: 'POST', body: JSON.stringify({ email, password }) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Ошибка входа');
   return data as { session_id: string; user: User };
 }
 
 export async function apiLogout() {
-  await request('auth', '/logout', { method: 'POST' });
+  await request('auth', { action: 'logout' }, { method: 'POST' });
   localStorage.removeItem('session_id');
 }
 
 export async function apiGetMe() {
-  const res = await request('auth', '/me');
+  const res = await request('auth', { action: 'me' });
   if (!res.ok) return null;
   const data = await res.json();
   return data.user as User;
 }
 
 export async function apiUpdateProfile(fields: Partial<User>) {
-  const res = await request('auth', '/profile', { method: 'PUT', body: JSON.stringify(fields) });
+  const res = await request('auth', { action: 'profile' }, { method: 'PUT', body: JSON.stringify(fields) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.user as User;
@@ -47,35 +48,35 @@ export async function apiUpdateProfile(fields: Partial<User>) {
 
 // Orders
 export async function apiGetOrders() {
-  const res = await request('orders', '/');
+  const res = await request('orders', {});
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.orders as Order[];
 }
 
 export async function apiGetOrder(id: number) {
-  const res = await request('orders', `/${id}`);
+  const res = await request('orders', { id: String(id) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.order as Order;
 }
 
 export async function apiCreateOrder(payload: CreateOrderPayload) {
-  const res = await request('orders', '/', { method: 'POST', body: JSON.stringify(payload) });
+  const res = await request('orders', {}, { method: 'POST', body: JSON.stringify(payload) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.order as Order;
 }
 
 export async function apiUpdateOrder(id: number, fields: Partial<Order>) {
-  const res = await request('orders', `/${id}`, { method: 'PUT', body: JSON.stringify(fields) });
+  const res = await request('orders', { id: String(id) }, { method: 'PUT', body: JSON.stringify(fields) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.order as Order;
 }
 
 export async function apiChangeStatus(id: number, status: string) {
-  const res = await request('orders', `/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
+  const res = await request('orders', { id: String(id), action: 'status' }, { method: 'PUT', body: JSON.stringify({ status }) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.order as Order;
@@ -83,21 +84,21 @@ export async function apiChangeStatus(id: number, status: string) {
 
 // Users
 export async function apiGetUsers() {
-  const res = await request('users', '/');
+  const res = await request('users', {});
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.users as User[];
 }
 
 export async function apiCreateUser(payload: Partial<User> & { password?: string }) {
-  const res = await request('users', '/', { method: 'POST', body: JSON.stringify(payload) });
+  const res = await request('users', {}, { method: 'POST', body: JSON.stringify(payload) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.user as User;
 }
 
 export async function apiUpdateUser(id: number, fields: Partial<User> & { password?: string }) {
-  const res = await request('users', `/${id}`, { method: 'PUT', body: JSON.stringify(fields) });
+  const res = await request('users', { id: String(id) }, { method: 'PUT', body: JSON.stringify(fields) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.user as User;
@@ -105,7 +106,7 @@ export async function apiUpdateUser(id: number, fields: Partial<User> & { passwo
 
 // Files
 export async function apiGetFiles(orderId: number) {
-  const res = await request('files', `/?order_id=${orderId}`);
+  const res = await request('files', { order_id: String(orderId) });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error);
   return data.files as OrderFile[];
@@ -113,7 +114,7 @@ export async function apiGetFiles(orderId: number) {
 
 export async function apiUploadFile(orderId: number, file: File, fileType = 'receipt') {
   const data64 = await fileToBase64(file);
-  const res = await request('files', '/', {
+  const res = await request('files', {}, {
     method: 'POST',
     body: JSON.stringify({ order_id: orderId, filename: file.name, file_type: fileType, data: data64, content_type: file.type }),
   });
