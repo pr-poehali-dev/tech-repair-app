@@ -1,25 +1,77 @@
+import { useState, useEffect } from 'react';
+import { Order, apiGetOrders } from '@/lib/api';
+import { useAuth } from '@/lib/AuthContext';
 import Icon from '@/components/ui/icon';
 
-const notifications = [
-  { id: 1, type: 'new', title: 'Новая заявка №1042', desc: 'Петров А.В. — замена смесителя, ул. Ленина, 24', time: '2 мин назад', read: false },
-  { id: 2, type: 'status', title: 'Мастер прибыл', desc: 'Карпов И. принял заявку №1041 — Сидорова М.П.', time: '18 мин назад', read: false },
-  { id: 3, type: 'payment', title: 'Поступила предоплата', desc: '2 000 ₽ от Иванова С.Г. по заявке №1040', time: '1 ч назад', read: false },
-  { id: 4, type: 'done', title: 'Заявка выполнена', desc: '№1039 — Козлова Е.Н., Волков Д. завершил работу', time: '3 ч назад', read: true },
-  { id: 5, type: 'review', title: 'Новый отзыв ⭐⭐⭐⭐⭐', desc: 'Фёдоров Н.А. оставил оценку по заявке №1036', time: '5 ч назад', read: true },
-  { id: 6, type: 'new', title: 'Новая заявка №1038', desc: 'Морозов В.В. — замена радиатора, ул. Гагарина, 3', time: 'Вчера, 16:42', read: true },
-  { id: 7, type: 'status', title: 'Мастер задерживается', desc: 'Семёнов П. опаздывает на заявку №1037 на 20 минут', time: 'Вчера, 12:15', read: true },
-];
+interface Notif {
+  id: string;
+  type: string;
+  title: string;
+  desc: string;
+  time: string;
+  read: boolean;
+}
 
-const typeConfig: Record<string, { icon: string; bg: string; color: string }> = {
+const TYPE_CFG: Record<string, { icon: string; bg: string; color: string }> = {
   new: { icon: 'Plus', bg: 'bg-[hsl(var(--status-new)/0.15)]', color: 'text-[hsl(var(--status-new))]' },
-  status: { icon: 'RefreshCw', bg: 'bg-primary/15', color: 'text-primary' },
-  payment: { icon: 'Wallet', bg: 'bg-[hsl(var(--status-done)/0.15)]', color: 'text-[hsl(var(--status-done))]' },
+  accepted: { icon: 'UserCheck', bg: 'bg-primary/15', color: 'text-primary' },
+  in_progress: { icon: 'Zap', bg: 'bg-primary/15', color: 'text-primary' },
   done: { icon: 'CheckCircle', bg: 'bg-[hsl(var(--status-done)/0.15)]', color: 'text-[hsl(var(--status-done))]' },
-  review: { icon: 'Star', bg: 'bg-primary/15', color: 'text-primary' },
+  cancelled: { icon: 'XCircle', bg: 'bg-destructive/10', color: 'text-destructive' },
 };
 
+const STATUS_RU: Record<string, string> = {
+  new: 'Новая заявка', accepted: 'Заявка принята', in_progress: 'Мастер в работе', done: 'Заявка выполнена', cancelled: 'Заявка отменена',
+};
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'только что';
+  if (m < 60) return `${m} мин назад`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} ч назад`;
+  return new Date(iso).toLocaleDateString('ru', { day: 'numeric', month: 'short' });
+}
+
 export default function NotificationsPage() {
-  const unread = notifications.filter((n) => !n.read).length;
+  const { user } = useAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('read_notifs');
+    if (stored) setReadIds(new Set(JSON.parse(stored)));
+
+    apiGetOrders().then((o) => {
+      setOrders(o.slice(0, 20));
+      setLoading(false);
+    }).catch(() => setLoading(false));
+
+    const iv = setInterval(() => {
+      apiGetOrders().then((o) => setOrders(o.slice(0, 20))).catch(() => {});
+    }, 15000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const notifs: Notif[] = orders.map((o) => ({
+    id: `${o.id}-${o.status}`,
+    type: o.status,
+    title: STATUS_RU[o.status] || o.status,
+    desc: `#${o.id} — ${o.client_name}, ${o.work_type}${o.master_name ? `, мастер: ${o.master_name}` : ''}`,
+    time: timeAgo(o.updated_at),
+    read: readIds.has(`${o.id}-${o.status}`),
+  }));
+
+  const unread = notifs.filter((n) => !n.read).length;
+
+  const markAllRead = () => {
+    const allIds = notifs.map((n) => n.id);
+    const newSet = new Set([...readIds, ...allIds]);
+    setReadIds(newSet);
+    localStorage.setItem('read_notifs', JSON.stringify([...newSet]));
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -35,19 +87,34 @@ export default function NotificationsPage() {
             )}
           </h1>
         </div>
-        <button className="text-xs text-primary tap-highlight px-3 py-2 rounded-xl bg-primary/10">
-          Прочитать все
-        </button>
+        {unread > 0 && (
+          <button onClick={markAllRead} className="text-xs text-primary tap-highlight px-3 py-2 rounded-xl bg-primary/10">
+            Прочитать все
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 space-y-2 pb-4">
-        {notifications.map((n, idx) => {
-          const cfg = typeConfig[n.type] ?? typeConfig.status;
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <Icon name="Loader2" size={24} className="animate-spin text-muted-foreground" />
+          </div>
+        )}
+
+        {!loading && notifs.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 gap-3">
+            <Icon name="Bell" size={40} className="text-muted-foreground/30" />
+            <p className="text-sm text-muted-foreground">Уведомлений нет</p>
+          </div>
+        )}
+
+        {notifs.map((n, idx) => {
+          const cfg = TYPE_CFG[n.type] || TYPE_CFG.new;
           return (
             <div
               key={n.id}
-              className={`card-surface p-3.5 flex gap-3 animate-slide-up transition-opacity ${n.read ? 'opacity-60' : ''}`}
-              style={{ animationDelay: `${idx * 35}ms` }}
+              className={`card-surface p-3.5 flex gap-3 animate-slide-up transition-opacity ${n.read ? 'opacity-55' : ''}`}
+              style={{ animationDelay: `${idx * 30}ms` }}
             >
               <div className={`flex-shrink-0 w-9 h-9 rounded-xl ${cfg.bg} flex items-center justify-center`}>
                 <Icon name={cfg.icon} size={16} className={cfg.color} />
@@ -57,9 +124,7 @@ export default function NotificationsPage() {
                   <p className={`text-sm font-semibold leading-tight ${n.read ? 'text-muted-foreground' : 'text-foreground'}`}>
                     {n.title}
                   </p>
-                  {!n.read && (
-                    <span className="flex-shrink-0 w-2 h-2 rounded-full bg-primary mt-1" />
-                  )}
+                  {!n.read && <span className="flex-shrink-0 w-2 h-2 rounded-full bg-primary mt-1" />}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{n.desc}</p>
                 <p className="text-[10px] text-muted-foreground/60 mt-1">{n.time}</p>

@@ -1,0 +1,1 @@
+CREATE TABLE t_p18818533_tech_repair_app.sessions (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES t_p18818533_tech_repair_app.users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '30 days')

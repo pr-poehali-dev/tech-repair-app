@@ -1,0 +1,1 @@
+CREATE TABLE t_p18818533_tech_repair_app.order_files (id SERIAL PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES t_p18818533_tech_repair_app.orders(id), filename TEXT NOT NULL, s3_key TEXT NOT NULL, file_url TEXT, file_type TEXT NOT NULL DEFAULT 'receipt', uploaded_by INTEGER REFERENCES t_p18818533_tech_repair_app.users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())

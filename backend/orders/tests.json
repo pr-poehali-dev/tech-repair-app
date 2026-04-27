@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Get orders unauthenticated",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 401,
+      "expectedBody": {"statusCode": 401},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

@@ -1,61 +1,117 @@
+import { useState, useEffect, useCallback } from 'react';
+import { Order, User, apiGetOrders, apiGetUsers } from '@/lib/api';
+import { useAuth } from '@/lib/AuthContext';
 import Icon from '@/components/ui/icon';
+import OrderDetailSheet from './OrderDetailSheet';
+import CreateOrderModal from './CreateOrderModal';
 
-const orders = [
-  { id: '№1042', client: 'Петров А.В.', address: 'ул. Ленина, 24, кв. 7', type: 'Замена смесителя', master: 'Карпов И.', time: '09:00', date: 'Сегодня', status: 'progress', prepaid: 1500, total: 4500 },
-  { id: '№1041', client: 'Сидорова М.П.', address: 'пр. Мира, 88, кв. 31', type: 'Прочистка канализации', master: 'Волков Д.', time: '11:30', date: 'Сегодня', status: 'new', prepaid: 0, total: 3200 },
-  { id: '№1040', client: 'Иванов С.Г.', address: 'ул. Садовая, 5, кв. 2', type: 'Установка унитаза', master: 'Карпов И.', time: '14:00', date: 'Сегодня', status: 'pending', prepaid: 2000, total: 6800 },
-  { id: '№1039', client: 'Козлова Е.Н.', address: 'ул. Пушкина, 12, кв. 19', type: 'Течь трубы', master: 'Новиков А.', time: '16:00', date: 'Вчера', status: 'done', prepaid: 1000, total: 2800 },
-  { id: '№1038', client: 'Морозов В.В.', address: 'ул. Гагарина, 3, кв. 45', type: 'Замена радиатора', master: 'Волков Д.', time: '10:00', date: 'Вчера', status: 'cancelled', prepaid: 0, total: 8500 },
-  { id: '№1037', client: 'Алексеева Т.К.', address: 'ул. Советская, 67, кв. 8', type: 'Монтаж счётчиков воды', master: 'Новиков А.', time: '13:00', date: 'Вчера', status: 'done', prepaid: 500, total: 3600 },
-];
-
-const statusLabel: Record<string, string> = {
-  new: 'Новая',
-  progress: 'В работе',
-  done: 'Выполнена',
-  cancelled: 'Отменена',
-  pending: 'Ожидание',
+const STATUS_LABEL: Record<string, string> = {
+  new: 'Новая', accepted: 'Принята', in_progress: 'В работе', done: 'Выполнена', cancelled: 'Отменена',
+};
+const STATUS_CLASS: Record<string, string> = {
+  new: 'status-new', accepted: 'status-pending', in_progress: 'status-progress', done: 'status-done', cancelled: 'status-cancelled',
 };
 
-const statusClass: Record<string, string> = {
-  new: 'status-new',
-  progress: 'status-progress',
-  done: 'status-done',
-  cancelled: 'status-cancelled',
-  pending: 'status-pending',
+const FILTERS = ['Все', 'Новые', 'Принятые', 'В работе', 'Выполнены', 'Отменены'];
+const FILTER_STATUS: Record<string, string | null> = {
+  'Все': null, 'Новые': 'new', 'Принятые': 'accepted', 'В работе': 'in_progress', 'Выполнены': 'done', 'Отменены': 'cancelled',
 };
-
-const filters = ['Все', 'Новые', 'В работе', 'Ожидание', 'Выполнены'];
 
 export default function OrdersPage() {
+  const { user } = useAuth();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [masters, setMasters] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('Все');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Order | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [ords, usrs] = await Promise.all([apiGetOrders(), user?.role === 'admin' ? apiGetUsers() : Promise.resolve([])]);
+      setOrders(ords);
+      setMasters(usrs);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 15000);
+    return () => clearInterval(interval);
+  }, [load]);
+
+  const filtered = orders.filter((o) => {
+    const statusOk = !FILTER_STATUS[filter] || o.status === FILTER_STATUS[filter];
+    const searchOk = !search || o.client_name.toLowerCase().includes(search.toLowerCase()) || o.address.toLowerCase().includes(search.toLowerCase()) || o.work_type.toLowerCase().includes(search.toLowerCase());
+    return statusOk && searchOk;
+  });
+
+  const counts = {
+    all: orders.length,
+    new: orders.filter((o) => o.status === 'new').length,
+    in_progress: orders.filter((o) => o.status === 'in_progress' || o.status === 'accepted').length,
+    done: orders.filter((o) => o.status === 'done').length,
+  };
+
+  const handleUpdated = (updated: Order) => {
+    setOrders((prev) => prev.map((o) => o.id === updated.id ? updated : o));
+    setSelected(updated);
+  };
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    if (diff < 86400000) return d.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+    if (diff < 172800000) return 'Вчера';
+    return d.toLocaleDateString('ru', { day: 'numeric', month: 'short' });
+  };
+
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="px-4 pt-4 pb-3 flex items-center justify-between">
         <div>
-          <p className="text-xs text-muted-foreground font-medium tracking-wide uppercase">Сегодня, 27 апр</p>
-          <h1 className="text-2xl font-bold text-foreground leading-tight">Заявки</h1>
+          <p className="text-xs text-muted-foreground font-medium tracking-wide uppercase">
+            {new Date().toLocaleDateString('ru', { day: 'numeric', month: 'long' })}
+          </p>
+          <h1 className="text-2xl font-bold text-foreground">Заявки</h1>
         </div>
-        <button className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center tap-highlight active:scale-95 transition-transform">
-          <Icon name="Plus" size={20} className="text-primary-foreground" />
-        </button>
+        {user?.role === 'admin' && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center tap-highlight active:scale-95 transition-transform"
+          >
+            <Icon name="Plus" size={20} className="text-primary-foreground" />
+          </button>
+        )}
       </div>
 
       {/* Search */}
       <div className="px-4 mb-3">
         <div className="flex items-center gap-2 bg-secondary rounded-xl px-3 py-2.5">
           <Icon name="Search" size={16} className="text-muted-foreground" />
-          <span className="text-muted-foreground text-sm">Поиск по заявкам...</span>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Поиск по заявкам..."
+            className="flex-1 bg-transparent text-foreground text-sm outline-none placeholder:text-muted-foreground"
+          />
+          {search && <button onClick={() => setSearch('')}><Icon name="X" size={14} className="text-muted-foreground" /></button>}
         </div>
       </div>
 
       {/* Stats row */}
       <div className="px-4 mb-3 grid grid-cols-4 gap-2">
         {[
-          { label: 'Всего', value: '6', color: 'text-foreground' },
-          { label: 'Новых', value: '1', color: 'text-[hsl(var(--status-new))]' },
-          { label: 'В работе', value: '2', color: 'text-primary' },
-          { label: 'Готово', value: '2', color: 'text-[hsl(var(--status-done))]' },
+          { label: 'Всего', value: counts.all, color: 'text-foreground' },
+          { label: 'Новых', value: counts.new, color: 'text-[hsl(var(--status-new))]' },
+          { label: 'В работе', value: counts.in_progress, color: 'text-primary' },
+          { label: 'Готово', value: counts.done, color: 'text-[hsl(var(--status-done))]' },
         ].map((s) => (
           <div key={s.label} className="card-surface p-2.5 text-center">
             <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
@@ -64,15 +120,14 @@ export default function OrdersPage() {
         ))}
       </div>
 
-      {/* Filter tabs */}
+      {/* Filters */}
       <div className="px-4 mb-3 flex gap-2 overflow-x-auto scrollbar-none">
-        {filters.map((f, i) => (
+        {FILTERS.map((f) => (
           <button
             key={f}
+            onClick={() => setFilter(f)}
             className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium tap-highlight transition-all ${
-              i === 0
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-muted-foreground'
+              filter === f ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
             }`}
           >
             {f}
@@ -82,23 +137,42 @@ export default function OrdersPage() {
 
       {/* Orders list */}
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 space-y-2.5 pb-4">
-        {orders.map((order, idx) => (
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <Icon name="Loader2" size={24} className="animate-spin text-muted-foreground" />
+          </div>
+        )}
+
+        {!loading && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 gap-3">
+            <Icon name="ClipboardList" size={40} className="text-muted-foreground/30" />
+            <p className="text-muted-foreground text-sm">Заявок нет</p>
+            {user?.role === 'admin' && (
+              <button onClick={() => setShowCreate(true)} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium">
+                Создать первую
+              </button>
+            )}
+          </div>
+        )}
+
+        {filtered.map((order, idx) => (
           <div
             key={order.id}
+            onClick={() => setSelected(order)}
             className="card-surface p-3.5 tap-highlight active:scale-[0.98] transition-transform cursor-pointer animate-slide-up"
-            style={{ animationDelay: `${idx * 40}ms` }}
+            style={{ animationDelay: `${idx * 30}ms` }}
           >
             <div className="flex items-start justify-between gap-2 mb-2">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono text-muted-foreground">{order.id}</span>
-                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${statusClass[order.status]}`}>
-                  {statusLabel[order.status]}
+                <span className="text-xs font-mono text-muted-foreground">#{order.id}</span>
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${STATUS_CLASS[order.status]}`}>
+                  {STATUS_LABEL[order.status]}
                 </span>
               </div>
-              <span className="text-xs text-muted-foreground whitespace-nowrap">{order.date}, {order.time}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(order.updated_at)}</span>
             </div>
 
-            <p className="font-semibold text-foreground text-sm mb-0.5">{order.client}</p>
+            <p className="font-semibold text-foreground text-sm mb-0.5">{order.client_name}</p>
             <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
               <Icon name="MapPin" size={11} className="flex-shrink-0" />
               {order.address}
@@ -106,26 +180,51 @@ export default function OrdersPage() {
 
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
-                  <Icon name="Wrench" size={10} className="text-primary" />
-                </div>
-                <span className="text-xs text-muted-foreground">{order.master}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                {order.prepaid > 0 && (
-                  <span className="text-xs text-[hsl(var(--status-done))]">+{order.prepaid.toLocaleString()} ₽</span>
+                {order.master_name ? (
+                  <>
+                    <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
+                      <Icon name="Wrench" size={10} className="text-primary" />
+                    </div>
+                    <span className="text-xs text-muted-foreground">{order.master_name}</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground/50 italic">Не назначен</span>
                 )}
-                <span className="text-sm font-bold text-foreground">{order.total.toLocaleString()} ₽</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {order.prepaid > 0 && (
+                  <span className="text-xs text-[hsl(var(--status-done))]">+{order.prepaid.toLocaleString('ru')} ₽</span>
+                )}
+                {order.final_amount > 0 && (
+                  <span className="text-sm font-bold text-foreground">{order.final_amount.toLocaleString('ru')} ₽</span>
+                )}
               </div>
             </div>
 
             <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
               <Icon name="Zap" size={11} className="text-primary flex-shrink-0" />
-              {order.type}
+              {order.work_type}
             </p>
           </div>
         ))}
       </div>
+
+      {selected && (
+        <OrderDetailSheet
+          order={selected}
+          masters={masters}
+          onClose={() => setSelected(null)}
+          onUpdated={handleUpdated}
+        />
+      )}
+
+      {showCreate && (
+        <CreateOrderModal
+          masters={masters}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); load(); }}
+        />
+      )}
     </div>
   );
 }

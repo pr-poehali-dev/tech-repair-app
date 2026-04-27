@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Get users unauthenticated",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 401,
+      "expectedBody": {"statusCode": 401},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

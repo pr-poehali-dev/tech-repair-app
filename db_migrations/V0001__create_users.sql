@@ -1,0 +1,1 @@
+CREATE TABLE t_p18818533_tech_repair_app.users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, phone TEXT, role TEXT NOT NULL DEFAULT 'master', password_hash TEXT NOT NULL, is_active BOOLEAN NOT NULL DEFAULT true, speciality TEXT, rating NUMERIC(3,2) DEFAULT 5.0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())

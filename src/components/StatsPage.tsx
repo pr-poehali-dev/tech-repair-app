@@ -1,29 +1,58 @@
+import { useState, useEffect } from 'react';
+import { Order, apiGetOrders } from '@/lib/api';
 import Icon from '@/components/ui/icon';
 
-const weekData = [
-  { day: 'Пн', amount: 12400, orders: 4 },
-  { day: 'Вт', amount: 8200, orders: 3 },
-  { day: 'Ср', amount: 15800, orders: 6 },
-  { day: 'Чт', amount: 9600, orders: 3 },
-  { day: 'Пт', amount: 18200, orders: 7 },
-  { day: 'Сб', amount: 21400, orders: 8 },
-  { day: 'Вс', amount: 6800, orders: 2 },
-];
-
-const maxAmount = Math.max(...weekData.map((d) => d.amount));
-
-const masterStats = [
-  { name: 'Карпов И.', orders: 12, revenue: 48600, percent: 38 },
-  { name: 'Волков Д.', orders: 8, revenue: 32400, percent: 26 },
-  { name: 'Новиков А.', orders: 7, revenue: 27800, percent: 22 },
-  { name: 'Семёнов П.', orders: 5, revenue: 18200, percent: 14 },
-];
-
 export default function StatsPage() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiGetOrders().then((o) => { setOrders(o); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  const done = orders.filter((o) => o.status === 'done');
+  const totalRevenue = done.reduce((s, o) => s + (o.final_amount || 0), 0);
+  const totalPrepaid = orders.reduce((s, o) => s + (o.prepaid || 0), 0);
+  const totalParts = done.reduce((s, o) => s + (o.parts_cost || 0), 0);
+  const avgCheck = done.length > 0 ? Math.round(totalRevenue / done.length) : 0;
+
+  // Revenue by master
+  const byMaster: Record<string, { name: string; orders: number; revenue: number }> = {};
+  done.forEach((o) => {
+    if (!o.master_name) return;
+    if (!byMaster[o.master_name]) byMaster[o.master_name] = { name: o.master_name, orders: 0, revenue: 0 };
+    byMaster[o.master_name].orders++;
+    byMaster[o.master_name].revenue += o.final_amount || 0;
+  });
+  const masterStats = Object.values(byMaster).sort((a, b) => b.revenue - a.revenue);
+  const maxRevenue = masterStats[0]?.revenue || 1;
+
+  // Last 7 days chart
+  const days: { label: string; amount: number }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const label = d.toLocaleDateString('ru', { weekday: 'short' });
+    const dayStr = d.toISOString().slice(0, 10);
+    const amount = done
+      .filter((o) => o.updated_at.slice(0, 10) === dayStr)
+      .reduce((s, o) => s + (o.final_amount || 0), 0);
+    days.push({ label, amount });
+  }
+  const maxDay = Math.max(...days.map((d) => d.amount), 1);
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-full">
+      <Icon name="Loader2" size={28} className="animate-spin text-muted-foreground" />
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 pt-4 pb-3">
-        <p className="text-xs text-muted-foreground font-medium tracking-wide uppercase">Апрель 2026</p>
+        <p className="text-xs text-muted-foreground font-medium tracking-wide uppercase">
+          {new Date().toLocaleDateString('ru', { month: 'long', year: 'numeric' })}
+        </p>
         <h1 className="text-2xl font-bold text-foreground">Статистика</h1>
       </div>
 
@@ -32,49 +61,46 @@ export default function StatsPage() {
         <div className="grid grid-cols-2 gap-2">
           <div className="card-surface p-4">
             <Icon name="TrendingUp" size={18} className="text-[hsl(var(--status-done))] mb-2" />
-            <p className="text-2xl font-bold text-foreground">127 400 ₽</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Выручка за апрель</p>
-            <p className="text-xs text-[hsl(var(--status-done))] mt-1">+14% к марту</p>
+            <p className="text-2xl font-bold text-foreground">{totalRevenue.toLocaleString('ru')} ₽</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Выручка (закрытые)</p>
           </div>
           <div className="card-surface p-4">
             <Icon name="Wallet" size={18} className="text-primary mb-2" />
-            <p className="text-2xl font-bold text-foreground">18 500 ₽</p>
+            <p className="text-2xl font-bold text-foreground">{totalPrepaid.toLocaleString('ru')} ₽</p>
             <p className="text-xs text-muted-foreground mt-0.5">Предоплаты</p>
-            <p className="text-xs text-muted-foreground mt-1">32 платежа</p>
           </div>
           <div className="card-surface p-4">
             <Icon name="ClipboardCheck" size={18} className="text-[hsl(var(--status-new))] mb-2" />
-            <p className="text-2xl font-bold text-foreground">32</p>
+            <p className="text-2xl font-bold text-foreground">{done.length}</p>
             <p className="text-xs text-muted-foreground mt-0.5">Закрытых заявок</p>
-            <p className="text-xs text-[hsl(var(--status-done))] mt-1">из 38 принятых</p>
+            <p className="text-xs text-muted-foreground">из {orders.length} всего</p>
           </div>
           <div className="card-surface p-4">
-            <Icon name="Star" size={18} className="text-primary mb-2" />
-            <p className="text-2xl font-bold text-foreground">4.8</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Средний рейтинг</p>
-            <p className="text-xs text-muted-foreground mt-1">28 отзывов</p>
+            <Icon name="Receipt" size={18} className="text-primary mb-2" />
+            <p className="text-2xl font-bold text-foreground">{avgCheck.toLocaleString('ru')} ₽</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Средний чек</p>
           </div>
         </div>
 
         {/* Bar chart */}
         <div className="card-surface p-4">
           <div className="flex items-center justify-between mb-4">
-            <p className="font-semibold text-foreground text-sm">Доходы по дням</p>
-            <span className="text-xs text-muted-foreground">Эта неделя</span>
+            <p className="font-semibold text-foreground text-sm">Выручка по дням</p>
+            <span className="text-xs text-muted-foreground">7 дней</span>
           </div>
           <div className="flex items-end gap-2 h-28">
-            {weekData.map((d) => {
-              const height = Math.round((d.amount / maxAmount) * 100);
-              const isToday = d.day === 'Вс';
+            {days.map((d) => {
+              const height = Math.round((d.amount / maxDay) * 100);
               return (
-                <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
+                <div key={d.label} className="flex-1 flex flex-col items-center gap-1">
                   <div className="w-full flex flex-col justify-end" style={{ height: '96px' }}>
-                    <div
-                      className={`w-full rounded-t-lg transition-all ${isToday ? 'bg-primary' : 'bg-primary/25'}`}
-                      style={{ height: `${height}%` }}
-                    />
+                    <div className="w-full rounded-t-lg bg-primary/30 transition-all" style={{ height: `${Math.max(height, 2)}%` }}>
+                      {d.amount > 0 && height >= 30 && (
+                        <div className="w-full h-full rounded-t-lg bg-primary" />
+                      )}
+                    </div>
                   </div>
-                  <span className="text-[10px] text-muted-foreground">{d.day}</span>
+                  <span className="text-[10px] text-muted-foreground">{d.label}</span>
                 </div>
               );
             })}
@@ -82,42 +108,46 @@ export default function StatsPage() {
         </div>
 
         {/* Masters performance */}
-        <div className="card-surface p-4">
-          <p className="font-semibold text-foreground text-sm mb-4">Выручка по мастерам</p>
-          <div className="space-y-3">
-            {masterStats.map((m) => (
-              <div key={m.name}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-sm text-foreground">{m.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{m.orders} зак.</span>
-                    <span className="text-sm font-semibold text-foreground">{m.revenue.toLocaleString()} ₽</span>
+        {masterStats.length > 0 && (
+          <div className="card-surface p-4">
+            <p className="font-semibold text-foreground text-sm mb-4">Выручка по мастерам</p>
+            <div className="space-y-3">
+              {masterStats.map((m) => (
+                <div key={m.name}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm text-foreground">{m.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{m.orders} зак.</span>
+                      <span className="text-sm font-semibold text-foreground">{m.revenue.toLocaleString('ru')} ₽</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                    <div className="h-full bg-primary rounded-full" style={{ width: `${Math.round((m.revenue / maxRevenue) * 100)}%` }} />
                   </div>
                 </div>
-                <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full transition-all"
-                    style={{ width: `${m.percent}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Period selector */}
-        <div className="card-surface p-1 flex">
-          {['Неделя', 'Месяц', 'Квартал', 'Год'].map((p, i) => (
-            <button
-              key={p}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
-                i === 1 ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
-              }`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
+        {masterStats.length === 0 && (
+          <div className="card-surface p-6 flex flex-col items-center gap-2">
+            <Icon name="BarChart3" size={32} className="text-muted-foreground/30" />
+            <p className="text-sm text-muted-foreground">Статистика появится после закрытия первых заявок</p>
+          </div>
+        )}
+
+        {/* Parts cost */}
+        {totalParts > 0 && (
+          <div className="card-surface p-4 flex items-center gap-3">
+            <Icon name="Package" size={18} className="text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Запчасти и материалы</p>
+              <p className="text-xs text-muted-foreground">Общая стоимость закупок</p>
+            </div>
+            <p className="ml-auto font-bold text-foreground">{totalParts.toLocaleString('ru')} ₽</p>
+          </div>
+        )}
       </div>
     </div>
   );
