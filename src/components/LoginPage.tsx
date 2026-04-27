@@ -88,9 +88,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-muted-foreground mt-8">
-          Тестовый вход: <span className="text-foreground">admin@remsrv.ru</span> / <span className="text-foreground">admin123</span>
-        </p>
+
       </div>
     </div>
   );

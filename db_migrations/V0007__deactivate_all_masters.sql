@@ -1,0 +1,1 @@
+UPDATE t_p18818533_tech_repair_app.users SET is_active=false WHERE role='master'
