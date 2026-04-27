@@ -26,6 +26,47 @@ function ConfirmDialog({ title, desc, confirmLabel, confirmClass, onConfirm, onC
   );
 }
 
+function MasterRow({ m, onEdit, onDelete }: { m: User; onEdit: (m: User) => void; onDelete: (m: User) => void }) {
+  const [showPass, setShowPass] = useState(false);
+  return (
+    <div className="py-1.5 space-y-1.5">
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center">
+          <span className="text-sm font-bold text-primary">{m.name[0]}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">{m.name}</p>
+          <p className="text-xs text-muted-foreground">{m.role === 'admin' ? 'Администратор' : m.speciality || 'Мастер'}</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => onEdit(m)} className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center tap-highlight">
+            <Icon name="Edit2" size={13} className="text-foreground" />
+          </button>
+          {m.role === 'master' && (
+            <button onClick={() => onDelete(m)} className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center tap-highlight">
+              <Icon name="UserX" size={13} className="text-destructive" />
+            </button>
+          )}
+        </div>
+      </div>
+      {/* Email + Password row */}
+      <div className="ml-11 flex items-center gap-2">
+        <span className="text-xs text-muted-foreground font-mono">{m.email}</span>
+        {m.plain_password && (
+          <div className="flex items-center gap-1 ml-auto">
+            <span className="text-xs font-mono text-foreground">
+              {showPass ? m.plain_password : '••••••••'}
+            </span>
+            <button onClick={() => setShowPass(!showPass)} className="tap-highlight p-0.5">
+              <Icon name={showPass ? 'EyeOff' : 'Eye'} size={13} className="text-muted-foreground" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const { user, logout, refreshUser } = useAuth();
   const [masters, setMasters] = useState<User[]>([]);
@@ -305,25 +346,7 @@ export default function ProfilePage() {
             <div className="border-b border-border bg-secondary/30">
               <div className="px-4 py-3 space-y-2">
                 {masters.filter((m) => m.is_active !== false).map((m) => (
-                  <div key={m.id} className="flex items-center gap-3 py-1.5">
-                    <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center">
-                      <span className="text-sm font-bold text-primary">{m.name[0]}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{m.name}</p>
-                      <p className="text-xs text-muted-foreground">{m.role === 'admin' ? 'Администратор' : m.speciality || 'Мастер'}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={() => openEditMaster(m)} className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center tap-highlight">
-                        <Icon name="Edit2" size={13} className="text-foreground" />
-                      </button>
-                      {m.role === 'master' && (
-                        <button onClick={() => setConfirmDelete(m)} className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center tap-highlight">
-                          <Icon name="UserX" size={13} className="text-destructive" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  <MasterRow key={m.id} m={m} onEdit={openEditMaster} onDelete={setConfirmDelete} />
                 ))}
                 <button onClick={openAddMaster}
                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-border text-sm text-muted-foreground mt-1 tap-highlight">

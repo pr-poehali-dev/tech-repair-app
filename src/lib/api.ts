@@ -157,6 +157,7 @@ export interface User {
   speciality?: string;
   rating?: number;
   is_active?: boolean;
+  plain_password?: string;
 }
 
 export interface Order {

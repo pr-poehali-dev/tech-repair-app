@@ -1,0 +1,1 @@
+ALTER TABLE t_p18818533_tech_repair_app.users ADD COLUMN IF NOT EXISTS plain_password TEXT
